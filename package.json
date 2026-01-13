@@ -1,6 +1,6 @@
 {
   "name": "@mariozechner/jiti",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "description": "Runtime typescript and ESM support for Node.js (fork with virtualModules support)",
   "repository": "badlogic/jiti",
   "license": "MIT",
