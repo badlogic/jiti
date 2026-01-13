@@ -1,7 +1,9 @@
 import { Module } from "node:module";
 import { performance } from "node:perf_hooks";
 import vm from "node:vm";
-import { dirname, basename, extname } from "pathe";
+import { writeFileSync, unlinkSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, basename, extname, join } from "pathe";
 import { hasESMSyntax } from "mlly";
 import {
   debug,
@@ -201,7 +203,19 @@ export function evalModule(
 }
 
 function esmEval(code: string, nativeImport: (id: string) => Promise<any>) {
-  const uri = `data:text/javascript;base64,${Buffer.from(`export default ${code}`).toString("base64")}`;
+  // Use temp file instead of data URL to avoid "NameTooLong" errors with large files
+  const tempDir = join(tmpdir(), "jiti-esm");
+  try {
+    mkdirSync(tempDir, { recursive: true });
+  } catch {}
+  const tempFile = join(tempDir, `${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
+  writeFileSync(tempFile, `export default ${code}`);
   return (...args: any[]) =>
-    nativeImport(uri).then((mod) => mod.default(...args));
+    nativeImport(tempFile)
+      .then((mod) => mod.default(...args))
+      .finally(() => {
+        try {
+          unlinkSync(tempFile);
+        } catch {}
+      });
 }
