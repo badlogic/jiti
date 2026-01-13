@@ -148,9 +148,10 @@ export function evalModule(
     });
   } catch (error: any) {
     if (error.name === "SyntaxError" && evalOptions.async && ctx.nativeImport) {
-      // Support cases such as import.meta.[custom]
+      // ESM syntax (import/export) can't be wrapped in a function for vm.runInThisContext
+      // Fall back to native import of the transpiled ESM source directly
       debug(ctx, "[esm]", "[import]", "[fallback]", filename);
-      compiled = esmEval(wrapped, ctx.nativeImport!);
+      return esmFallbackImport(source, filename, ctx.nativeImport!);
     } else {
       if (ctx.opts.moduleCache) {
         delete ctx.nativeRequire.cache[filename];
@@ -202,20 +203,30 @@ export function evalModule(
   return evalOptions.async ? Promise.resolve(evalResult).then(next) : next();
 }
 
-function esmEval(code: string, nativeImport: (id: string) => Promise<any>) {
-  // Use temp file instead of data URL to avoid "NameTooLong" errors with large files
+/**
+ * Fallback for ESM modules that can't be evaluated with vm.runInThisContext.
+ * Writes the transpiled ESM source to a temp file and imports it natively.
+ */
+async function esmFallbackImport(
+  source: string,
+  filename: string,
+  nativeImport: (id: string) => Promise<any>,
+) {
   const tempDir = join(tmpdir(), "jiti-esm");
   try {
     mkdirSync(tempDir, { recursive: true });
   } catch {}
-  const tempFile = join(tempDir, `${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`);
-  writeFileSync(tempFile, `export default ${code}`);
-  return (...args: any[]) =>
-    nativeImport(tempFile)
-      .then((mod) => mod.default(...args))
-      .finally(() => {
-        try {
-          unlinkSync(tempFile);
-        } catch {}
-      });
+  const tempFile = join(
+    tempDir,
+    `${basename(filename, extname(filename))}-${Date.now()}.mjs`,
+  );
+  writeFileSync(tempFile, source);
+  try {
+    const mod = await nativeImport(tempFile);
+    return mod?.default ?? mod;
+  } finally {
+    try {
+      unlinkSync(tempFile);
+    } catch {}
+  }
 }
